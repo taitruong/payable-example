@@ -1,9 +1,9 @@
 use cosmwasm_std::CosmosMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-// Needed for payables 
+// Needed for payables
 use cw20::Cw20ReceiveMsg;
-gi
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub count: i32,
