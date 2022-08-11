@@ -5,7 +5,7 @@ use cw2::set_contract_version;
 use cw20::{Cw20ReceiveMsg};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, GetCountResponse, InstantiateMsg, QueryMsg, Cw20HookMsg};
+use crate::msg::{ExecuteMsg, GetCountResponse, InstantiateMsg, QueryMsg, Cw20HookMsg, GetStateResponse};
 use crate::state::{State, STATE};
 
 // version info for migration info
@@ -43,8 +43,19 @@ pub fn execute(
     match msg {
         ExecuteMsg::Increment {} => try_increment(deps),
         ExecuteMsg::Reset { count } => try_reset(deps, info, count),
-        ExecuteMsg::Receive(cw20_msg) => receive_cw20(deps, _env, info, cw20_msg)
+        ExecuteMsg::Receive(cw20_msg) => receive_cw20(deps, _env, info, cw20_msg),
+        ExecuteMsg::UpdateState{cw20, count} => update_state(deps, cw20, count),
     }
+}
+
+fn update_state(deps: DepsMut, cw20: String, count: i32) -> Result<Response, ContractError> {
+    let addr = deps.api.addr_validate(&cw20)?;
+    STATE.update(deps.storage, |mut state|  -> Result<_, ContractError> {
+        state.count = count;
+        state.cw20 = addr;
+        Ok(state)
+    })?;
+    Ok(Response::new().add_attribute("method", "update_state"))
 }
 
 /// handler function invoked when the governance contract receives
@@ -95,12 +106,18 @@ pub fn try_reset(deps: DepsMut, info: MessageInfo, count: i32) -> Result<Respons
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetCount {} => to_binary(&query_count(deps)?),
+        QueryMsg::GetState {} => to_binary(&query_state(deps)?),
     }
 }
 
 fn query_count(deps: Deps) -> StdResult<GetCountResponse> {
     let state = STATE.load(deps.storage)?;
     Ok(GetCountResponse { count: state.count })
+}
+
+fn query_state(deps: Deps) -> StdResult<GetStateResponse> {
+    let State{ cw20, count, .. } = STATE.load(deps.storage)?;
+    Ok(GetStateResponse{cw20: cw20.to_string(), count})
 }
 
 #[cfg(test)]
@@ -171,5 +188,22 @@ mod tests {
         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
         let value: GetCountResponse = from_binary(&res).unwrap();
         assert_eq!(5, value.count);
+    }
+
+    #[test]
+    fn update_state() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {count: 17, staking_token: "mytoken".to_string()};
+        let info = mock_info("creator", &coins(2, "token)"));
+        instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+
+        let msg = ExecuteMsg::UpdateState { cw20: "othertoken".to_string(), count: 5 };
+        execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetState {  }).unwrap();
+        let state_response: GetStateResponse = from_binary(&res).unwrap();
+        assert_eq!("othertoken", state_response.cw20);
+        assert_eq!(5, state_response.count);
     }
 }
